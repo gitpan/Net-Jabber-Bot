@@ -1,0 +1,14 @@
+Changes
+MANIFEST
+Makefile.PL
+README
+lib/Net/Jabber/Bot.pm
+t/00-load.t
+t/01-gen_config.t
+t/02-config_file.t
+t/04-test_connectivity.t
+t/05-private_subs.t
+t/06-test_bot_limits.t
+t/99-pod-coverage.t
+t/99-pod.t
+META.yml                                 Module meta-data (added by MakeMaker)

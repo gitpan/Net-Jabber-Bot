@@ -1,0 +1,4 @@
+Revision history for Net-Jabber-Bot
+
+1.2 Initial CPAN release - Basic tests built. Still more needed. Some of the limits are hard coded. Arguably, these should be more in a child module, not the base class? 
+1.1 Initial pre-CPAN release -- Does basic stuff but no tests yet. not CPAN ready

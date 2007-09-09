@@ -1,0 +1,17 @@
+--- #YAML:1.0
+name:                Net-Jabber-Bot
+version:             1.1
+abstract:            Automated Bot creation with safeties
+license:             ~
+generated_by:        ExtUtils::MakeMaker version 6.35
+distribution_type:   module
+requires:     
+    Class::Std:                    0
+    Config::Std:                   0
+    IO::Prompt:                    0
+    Test::More:                    0
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.2.html
+    version: 1.2
+author:
+    - Todd E Rinaldo <todd.e.rinaldo@jpmorgan.com>
