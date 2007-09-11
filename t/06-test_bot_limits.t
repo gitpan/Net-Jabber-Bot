@@ -15,9 +15,11 @@ my $bot_alias = 'make_test_bot';
 my $client_alias = 'bot_test_client';
 my $loop_sleep_time = 5;
 my $server_info_timeout = 5;
-my @forums_to_join;
-push @forums_to_join, $config_file_hash{'main'}{'test_forum'};
-my @responses = ('tbot:', '');
+
+my %forums_and_responses;
+$forums_and_responses{$config_file_hash{'main'}{'test_forum1'}} = ["jbot:", ""];
+$forums_and_responses{$config_file_hash{'main'}{'test_forum2'}} = ["notjbot:"];
+
 my $ignore_server_messages = 1;
 my $ignore_self_messages = 1;
 my $out_messages_per_second = 5;
@@ -38,24 +40,23 @@ my $personal_address = "$config_file_hash{'main'}{'username'}\@$config_file_hash
 
 ok(1, "Object is about to be created");
 my $bot = Net::Jabber::Bot->new({
-     server => $config_file_hash{'main'}{'server'}
-    , conference_server => $config_file_hash{'main'}{'conference'}
-    , port => $config_file_hash{'main'}{'port'}
-    , username => $config_file_hash{'main'}{'username'}
-    , password => $config_file_hash{'main'}{'password'}
-    , alias => $bot_alias
-    , message_callback => \&new_bot_message   # Called if new messages arrive.
-    , background_activity => \&background_checks # What the bot does outside jabber.
-    , loop_sleep_time => $loop_sleep_time # Minimum time before doing background function.
-    , process_timeout => $server_info_timeout # Time to wait for new jabber messages before doing background stuff
-    , forums => \@forums_to_join
-    , aliases_to_respond_to => \@responses
-    , ignore_server_messages => $ignore_server_messages
-    , ignore_self_messages => $ignore_self_messages
-    , out_messages_per_second => $out_messages_per_second
-    , max_message_size => $max_message_size
-    , max_messages_per_hour => $max_messages_per_hour
-});
+				 server => $config_file_hash{'main'}{'server'}
+				 , conference_server => $config_file_hash{'main'}{'conference'}
+				 , port => $config_file_hash{'main'}{'port'}
+				 , username => $config_file_hash{'main'}{'username'}
+				 , password => $config_file_hash{'main'}{'password'}
+				 , alias => $bot_alias
+				 , message_callback => \&new_bot_message   # Called if new messages arrive.
+				 , background_activity => \&background_checks # What the bot does outside jabber.
+				 , loop_sleep_time => $loop_sleep_time # Minimum time before doing background function.
+				 , process_timeout => $server_info_timeout # Time to wait for new jabber messages before doing background stuff
+				 , forums_and_responses => \%forums_and_responses
+				 , ignore_server_messages => $ignore_server_messages
+				 , ignore_self_messages => $ignore_self_messages
+				 , out_messages_per_second => $out_messages_per_second
+				 , max_message_size => $max_message_size
+				 , max_messages_per_hour => $max_messages_per_hour
+				});
 diag("got return value $result") if(defined $result);
 
 ok(defined $bot, "Bot initialized and connected");
@@ -68,7 +69,7 @@ process_bot_messages();
 {
     start_new_test(); # Reset all my counter variables.
     for my $counter (1..$flood_messages_to_send) {
-	my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum'}, "Testing message speed $counter");
+	my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum1'}, "Testing message speed $counter");
 	diag("got return value $result") if(defined $result);
 	ok(!defined $result, "Sent group message $counter");
     }
@@ -137,14 +138,14 @@ cmp_ok(length($long_message), '>=' , $max_message_size , "Length of message is g
 
      # Group Test.
      ok(1, "Sending long message of " . length($long_message) . " bytes to forum");
-     my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum'}, $long_message);
+     my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum1'}, $long_message);
      diag("got return value $result\nWhile trying to send: $long_message") if(defined $result);
      ok(!defined $result, "Sent long message.");
      process_bot_messages();
      cmp_ok($messages_seen, '>=',$long_message_test_messages, "Saw $long_message_test_messages messages so we know it was chunked into messages smaller than $max_message_size");
 
      start_new_test();
-     my $subject_change_result = $bot->SetForumSubject($config_file_hash{'main'}{'test_forum'}, $long_message);
+     my $subject_change_result = $bot->SetForumSubject($config_file_hash{'main'}{'test_forum1'}, $long_message);
      is($subject_change_result, "Subject is too long!", 'Verify long subject changes are rejected.');
      verify_messages_sent(0);
      verify_messages_seen(0, "Bot should not have sent anything to the server.");
@@ -192,14 +193,14 @@ sub verify_messages_seen {
     cmp_ok($messages_seen, '==', $expected_messages, "Verify that $expected_messages were seen $comment");
 }
 
-sub start_new_test() {
+sub start_new_test {
     our $initial_message_count = $bot->get_messages_this_hour();
     our $messages_seen = 0;
     our $start_time = time;
 }
 
 
-sub process_bot_messages(){
+sub process_bot_messages {
     sleep 2; # Pause a little to make sure message make it to the server and back.
     ok(defined $bot->Process(5), "Processed new messages and didn't lose connection.");
 }

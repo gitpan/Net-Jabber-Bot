@@ -14,9 +14,10 @@ ok((read_config $config_file => %config_file_hash), "Load config file");
 my $alias = 'make_test_bot';
 my $loop_sleep_time = 5;
 my $server_info_timeout = 5;
-my @forums_to_join;
-push @forums_to_join, $config_file_hash{'main'}{'test_forum'};
-my @responses = ('', 'tbot:');
+
+my %forums_and_responses;
+$forums_and_responses{$config_file_hash{'main'}{'test_forum1'}} = ["jbot:", ""];
+$forums_and_responses{$config_file_hash{'main'}{'test_forum2'}} = ["notjbot:"];
 
 my $bot = Net::Jabber::Bot->new({
     server => $config_file_hash{'main'}{'server'}
@@ -25,7 +26,7 @@ my $bot = Net::Jabber::Bot->new({
     , username => $config_file_hash{'main'}{'username'}
     , password => $config_file_hash{'main'}{'password'}
     , alias => $alias
-    , forums => \@forums_to_join
+    , forums_and_responses => \%forums_and_responses
 });
 
 ok(defined $bot, "Bot initialized and connected");

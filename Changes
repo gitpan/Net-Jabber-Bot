@@ -1,4 +1,5 @@
 Revision history for Net-Jabber-Bot
 
-1.2 Initial CPAN release - Basic tests built. Still more needed. Some of the limits are hard coded. Arguably, these should be more in a child module, not the base class? 
-1.1 Initial pre-CPAN release -- Does basic stuff but no tests yet. not CPAN ready
+1.2.0 Re-enabled config test, plus fixed some docs. Versioning changes from here out to be 3 digit. Bot will respond to different addressings per forum (all messages, jbot:, etc.)
+1.1 Initial CPAN release - Basic tests built. Still more needed. Some of the limits are hard coded. Arguably, these should be more in a child module, not the base class? 
+1.0 Initial pre-CPAN release -- Does basic stuff but no tests yet. not CPAN ready
