@@ -14,7 +14,6 @@ use Class::Std;
 my %jabber_client   : ATTR; # Keep track of the jabber object we are using.
 my %connection_hash : ATTR; # Keep track of connection options fed to client.
 my %connection_session_id : ATTR; # Reverse hash where we'll figure out what object we are...
-my %self_from_ident : ATTR; # Since I do not know how to ask Class::Std, I'm just trapping it in BUILD.
 my %message_function : ATTR; # What is called if we are fed a new message once we are logged in.
 my %bot_background_activity : ATTR; # What is called if we are fed a new message once we are logged in.
 my %forum_join_time : ATTR; # Tells us if we've parsed historical messages yet.
@@ -36,11 +35,11 @@ Net::Jabber::Bot - Automated Bot creation with safeties
 
 =head1 VERSION
 
-Version 1.2.0
+Version 1.2.1
 
 =cut
 
-our $VERSION = '1.2.0';
+our $VERSION = '1.2.1';
 
 =head1 SYNOPSIS
 
@@ -246,7 +245,6 @@ sub BUILD {
 
     $connection_hash{$obj_ID}{'alias'} = $arg_ref->{'alias'};
 
-    $self_from_ident{$obj_ID} = $self;
     $message_function{$obj_ID} = $arg_ref->{'message_callback'};
     $bot_background_activity{$obj_ID} = $arg_ref->{'background_activity'};
 
@@ -333,6 +331,29 @@ sub CreateJabberNamespaces : PRIVATE {
 				   );
 }
 
+# Return a code reference that will pass self in addition to arguements passed to callback code ref.
+sub callback_maker_pjm : PRIVATE {
+    my $self = shift;
+
+#    return sub {return $code_ref->($self, @_);};
+    return sub {return $self->ProcessJabberMessage(@_);};
+}
+# Return a code reference that will pass self in addition to arguements passed to callback code ref.
+sub callback_maker_jpm : PRIVATE {
+    my $self = shift;
+
+#    return sub {return $code_ref->($self, @_);};
+    return sub {return $self->JabberPresenceMessage(@_);};
+}
+# Return a code reference that will pass self in addition to arguements passed to callback code ref.
+sub callback_maker_iq : PRIVATE {
+    my $self = shift;
+
+#    return sub {return $code_ref->($self, @_);};
+    return sub {return $self->InIQ(@_);};
+}
+
+
 # Creates client object and manages connection. Called on new but also called by re-connect
 sub InitJabber : PRIVATE {
     my $self = shift;
@@ -345,9 +366,10 @@ sub InitJabber : PRIVATE {
     DEBUG("Set the call backs.");
 
     $connection->PresenceDB(); # Init presence DB.
-    $connection->SetCallBacks('message'=>\&ProcessJabberMessage
-                              ,'presence'=>\&JabberPresenceMessage
-                              ,'iq'=>\&InIQ);
+    $connection->SetCallBacks( 'message'  => $self->callback_maker_pjm()
+                              ,'presence' => $self->callback_maker_jpm()
+                              ,'iq'       => $self->callback_maker_iq()
+                              );
 
     DEBUG("Connect. hostname => $connection_hash{$obj_ID}{'server'} , port => $connection_hash{$obj_ID}{'port'}");
     my $status = $connection->Connect(hostname=>$connection_hash{$obj_ID}{'server'} , port=>$connection_hash{$obj_ID}{'port'});
@@ -497,7 +519,7 @@ sub ReconnectToServer {
 
 =item B<Disconnect>
 
-    Disconnects from server if client object is defined. Assures the client object is deleted.
+Disconnects from server if client object is defined. Assures the client object is deleted.
 
 =cut
 
@@ -521,11 +543,11 @@ Handles incoming messages ***NEED VERY GOOD DOCUMENTATION HERE***** (TODO)
 =cut
 
 sub ProcessJabberMessage {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return;
+
     my $session_id = shift;
     my $message = shift;
-
-    my $self = _which_object_am_i($session_id);
-    my $obj_ID = $self->_get_obj_id() or return;
 
     my $type = $message->GetType();
     my $fromJID = $message->GetFrom("jid");
@@ -547,11 +569,11 @@ sub ProcessJabberMessage {
     my $time_now = time;
     if($client_start_time{$obj_ID} > $time_now - $grace_period
        || (defined $forum_join_time{$obj_ID}{$from} && $forum_join_time{$obj_ID}{$from} > $time_now - $grace_period)) {
-#	my $cond1 = "$client_start_time{$obj_ID} > $time_now - $grace_period";
-#	my $cond2 = "$forum_join_time{$obj_ID}{$from} > $time_now - $grace_period";
-	DEBUG("Ignoring messages cause I'm in startup for forum $from\n");
-#	      . "$cond1\n"
-#	      . "$cond2");
+	my $cond1 = "$client_start_time{$obj_ID} > $time_now - $grace_period";
+	my $cond2 = "$forum_join_time{$obj_ID}{$from} > $time_now - $grace_period";
+	DEBUG("Ignoring messages cause I'm in startup for forum $from\n"
+	      . "$cond1\n"
+	      . "$cond2");
         return; # Ignore messages the first few seconds.
     }
 
@@ -575,27 +597,32 @@ sub ProcessJabberMessage {
     }
 
     # Determine if this message was addressed to me. (groupchat only)
-    my $bot_address_form;
-    my @aliases_to_respond_to;
-    if(defined $forums_and_responses{$obj_ID}{$from}) {
-	@aliases_to_respond_to = @{$forums_and_responses{$obj_ID}{$from}};
-    }
+    my $bot_address_from;
+    my @aliases_to_respond_to = $self->get_responses($from);
+
     if($#aliases_to_respond_to >= 0 and $type eq 'groupchat') {
         my $request;
         foreach my $address_type (@aliases_to_respond_to) {
             my $qm_address_type = quotemeta($address_type);
             next if($body !~ m/^\s*$qm_address_type\s*(\S.*)$/);
             $request = $1;
-	    $bot_address_form = $address_type;
+	    $bot_address_from = $address_type;
             last; # do not need to loop any more.
         }
         return if(!defined $request);
         $body = $request;
     }
 
-    if(defined $message_function{$obj_ID}) {
-        my $subroutine = $message_function{$obj_ID};
-        &$subroutine($self, $from_full, $body, $type, $reply_to, $bot_address_form, $message);
+    # Call the message callback if it's defined.
+    if( exists $message_function{$obj_ID} ) { 
+        $message_function{$obj_ID}->(bot_object => $self,
+                                     from_full => $from_full,
+                                     body => $body,
+                                     type => $type,
+                                     reply_to => $reply_to,
+                                     bot_address_from => $bot_address_from,
+                                     message => $message
+                                     );
         return;
     } else {
         WARN("No handler for messages!");
@@ -615,6 +642,34 @@ sub get_alias {
 
     return $connection_hash{$obj_ID}{'alias'};
 }
+
+=item B<get_responses>
+
+    $bot->get_ident($forum_name);
+
+Returns the array of messages we are monitoring for in supplied forum or replies with undef.
+
+=cut
+
+sub get_responses {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return;
+
+    my $forum = shift;
+
+    if(!defined $forum) {
+	WARN("No forum supplied for get_responses()");
+	return;
+    }
+
+    my @aliases_to_respond_to;
+    if(defined $forums_and_responses{$obj_ID}{$forum}) {
+        @aliases_to_respond_to = @{$forums_and_responses{$obj_ID}{$forum}};
+    }
+
+    return @aliases_to_respond_to;
+}
+
 
 # Supposed to respond to version requests. *** NOT WORKING YET ****
 sub Version : PRIVATE {
@@ -639,11 +694,11 @@ Called when the client receives new messages during Process of this type.
 =cut
 
 sub InIQ {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return;
+
     my $session_id = shift;
     my $iq = shift;
-
-    my $self = _which_object_am_i($session_id);
-    my $obj_ID = $self->_get_obj_id() or return;
 
     DEBUG("IQ Message:" . $iq->GetXML());
 #    my $from = $iq->GetFrom();DEBUG("From=$from");
@@ -682,19 +737,19 @@ Mostly we are just pushing the data down into the client DB for later processing
 =cut 
 
 sub JabberPresenceMessage {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return;
+
     my $session_id = shift;
     my $presence = shift;
 
-    my $self   = _which_object_am_i($session_id);
-    my $obj_ID = $self->_get_obj_id() or return;
-
     my $type = $presence->GetType();
     if($type eq 'subscribe') { # Always allow people to subscribe to us. Why wouldn't we?
-	my $from = $presence->GetFrom();
-	$jabber_client{$obj_ID}->Subscription(type=>"subscribed",
-					      to=>$from);
-	INFO("Processed subscription request from $from");
-	return;
+        my $from = $presence->GetFrom();
+        $jabber_client{$obj_ID}->Subscription(type=>"subscribed",
+                          				      to=>$from);
+        INFO("Processed subscription request from $from");
+        return;
     } elsif($type eq 'unsubscribe') { # Always allow people to subscribe to us. Why wouldn't we?
         my $from = $presence->GetFrom();
         $jabber_client{$obj_ID}->Subscription(type=>"unsubscribed",
@@ -814,7 +869,7 @@ $recipient must read as user@server/Resource or it will not send.
 
 =item B<SendJabberMessage>
 
-	$bot->SendJabberMessage($recipient, $message, $message_type, $subject);
+    $bot->SendJabberMessage($recipient, $message, $message_type, $subject);
 
 The master subroutine to send a message. Called either by the user, SendPersonalMessage, or SendGroupMessage. Sometimes there
 is call to call it directly when you do not feel like figuring you messaged you.
@@ -963,22 +1018,6 @@ sub _get_obj_id : PRIVATE {
     $package = 'unknown' if(!defined $package);
 
     ERROR("$package called at line $line_caller in $filename_caller without a valid object!!");
-    return;
-}
-
-# Allows the message processors to figure out what object ($self) they are based
-# on the session_id, which is all that the connection feeds to the routines when
-# they get a new message.
-
-sub _which_object_am_i : PRIVATE{
-    my $session_id = shift;
-
-    foreach my $obj_ID (keys %connection_session_id) {
-        return $self_from_ident{$obj_ID} if($connection_session_id{$obj_ID} eq $session_id);
-    }
-
-    my ($package, $filename, $line) = caller(1);
-    ERROR("Can't find object that owns $session_id in $package!!");
     return;
 }
 

@@ -1,6 +1,6 @@
 #!perl -T
 
-use Test::More tests => 9;
+use Test::More tests => 11;
 use Config::Std; # Uses read_config to pull info from a config files. enhanced INI format.
 use Net::Jabber::Bot;
 #use Log::Log4perl qw(:easy);
@@ -35,7 +35,15 @@ ok(defined $bot->Process(), "Bot connected to server");
 # Now check if the privates can be called
 $bot->Disconnect();
 
-my @privates = qw(CreateJabberNamespaces InitJabber Version _SendIndividualMessage _get_obj_id _which_object_am_i);
+my @privates = qw(CreateJabberNamespaces
+                  InitJabber
+                  Version
+                  _SendIndividualMessage
+                  _get_obj_id
+		  callback_maker_pjm
+		  callback_maker_jpm
+		  callback_maker_iq
+		 );
 
 foreach $private_module (@privates) {
     my $call = "\$bot->$private_module()";
