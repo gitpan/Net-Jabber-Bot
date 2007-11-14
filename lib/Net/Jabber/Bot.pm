@@ -35,11 +35,11 @@ Net::Jabber::Bot - Automated Bot creation with safeties
 
 =head1 VERSION
 
-Version 1.2.1
+Version 1.3.0
 
 =cut
 
-our $VERSION = '1.2.1';
+our $VERSION = '1.3.0';
 
 =head1 SYNOPSIS
 
@@ -332,25 +332,12 @@ sub CreateJabberNamespaces : PRIVATE {
 }
 
 # Return a code reference that will pass self in addition to arguements passed to callback code ref.
-sub callback_maker_pjm : PRIVATE {
+sub callback_maker : PRIVATE {
     my $self = shift;
+    my $Function = shift;
 
 #    return sub {return $code_ref->($self, @_);};
-    return sub {return $self->ProcessJabberMessage(@_);};
-}
-# Return a code reference that will pass self in addition to arguements passed to callback code ref.
-sub callback_maker_jpm : PRIVATE {
-    my $self = shift;
-
-#    return sub {return $code_ref->($self, @_);};
-    return sub {return $self->JabberPresenceMessage(@_);};
-}
-# Return a code reference that will pass self in addition to arguements passed to callback code ref.
-sub callback_maker_iq : PRIVATE {
-    my $self = shift;
-
-#    return sub {return $code_ref->($self, @_);};
-    return sub {return $self->InIQ(@_);};
+    return sub {return $Function->($self, @_);};
 }
 
 
@@ -366,9 +353,9 @@ sub InitJabber : PRIVATE {
     DEBUG("Set the call backs.");
 
     $connection->PresenceDB(); # Init presence DB.
-    $connection->SetCallBacks( 'message'  => $self->callback_maker_pjm()
-                              ,'presence' => $self->callback_maker_jpm()
-                              ,'iq'       => $self->callback_maker_iq()
+    $connection->SetCallBacks( 'message'  => $self->callback_maker(\&ProcessJabberMessage)
+                              ,'presence' => $self->callback_maker(\&JabberPresenceMessage)
+                              ,'iq'       => $self->callback_maker(\&InIQ)
                               );
 
     DEBUG("Connect. hostname => $connection_hash{$obj_ID}{'server'} , port => $connection_hash{$obj_ID}{'port'}");
@@ -544,6 +531,7 @@ Handles incoming messages ***NEED VERY GOOD DOCUMENTATION HERE***** (TODO)
 
 sub ProcessJabberMessage {
     my $self = shift;
+    DEBUG("Jabber process called");
     my $obj_ID = $self->_get_obj_id() or return;
 
     my $session_id = shift;

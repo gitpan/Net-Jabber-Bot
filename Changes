@@ -1,5 +1,9 @@
 Revision history for Net-Jabber-Bot
 
+1.3.0 
+Move to 3 digit version (see pause.perl.org FAQ about starting with 2 digit version and going to 3)
+internal callback maker created to reduce code.
+
 1.2.1 Call back functions how call self funcion via anonymous subs.
 Minor bug fixes and cleanup.
 
