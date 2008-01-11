@@ -1,14 +1,12 @@
 --- #YAML:1.0
 name:                Net-Jabber-Bot
-version:             2.0.2
+version:             2.0.3
 abstract:            Automated Bot creation with safeties
 license:             ~
-generated_by:        ExtUtils::MakeMaker version 6.35
+generated_by:        ExtUtils::MakeMaker version 6.34
 distribution_type:   module
 requires:     
     Class::Std:                    0
-    Config::Std:                   0
-    IO::Prompt:                    0
     Log::Log4perl:                 0
     Net::Jabber:                   2
     Test::More:                    0

@@ -1,52 +1,56 @@
-#!perl -T
+#!perl
 
-use Test::More tests => 1; ok(1); exit; #Disable tests
-# These tests are in progress...
-#use Test::More tests => 118;
-use Config::Std; # Uses read_config to pull info from a config files. enhanced INI format.
+use strict;
+use warnings;
+use Test::More tests => 120;
 use Net::Jabber::Bot;
 
 #InitLog4Perl();
 
-# Load config file.
-my $config_file = 'test_config.cfg';
-my %config_file_hash;
-ok((read_config $config_file => %config_file_hash), "Load config file");
+# stuff for mock client object
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use MockJabberClient; # Test object
 
+# Setup 
 my $bot_alias = 'make_test_bot';
 my $client_alias = 'bot_test_client';
+my $server = 'talk.google.com';
+my $personal_address = "test_user\@$server/$bot_alias";
+
 my $loop_sleep_time = 5;
 my $server_info_timeout = 5;
 
 my %forums_and_responses;
-$forums_and_responses{$config_file_hash{'main'}{'test_forum1'}} = ["jbot:", ""];
-$forums_and_responses{$config_file_hash{'main'}{'test_forum2'}} = ["notjbot:"];
+my $forum1 = 'test_forum1';
+my $forum2 = 'test_forum2';
+$forums_and_responses{$forum1} = ["jbot:", ""];
+$forums_and_responses{$forum2} = ["notjbot:"];
 
 my $ignore_server_messages = 1;
-my $ignore_self_messages = 0;
+my $ignore_self_messages = 1;
 my $out_messages_per_second = 5;
 my $max_message_size = 800;
 my $long_message_test_messages = 6;
 my $flood_messages_to_send = 40;
 my $max_messages_per_hour = ($flood_messages_to_send*2 
-			     + 2
-			     + $long_message_test_messages
-			     );
+						     + 2
+						     + $long_message_test_messages
+						     );
 
 # Globals we'll keep track of variables we use each test.
 our $messages_seen = 0;
 our $initial_message_count = 0;
 our $start_time = time;
 
-my $personal_address = "$config_file_hash{'main'}{'username'}\@$config_file_hash{'main'}{'server'}/$bot_alias";
+ok(1, "Creating Net::Jabber::Bot object with Mock client library asserted in place of Net::Jabber::Client");
 
-ok(1, "Object is about to be created");
 my $bot = Net::Jabber::Bot->new({
-				 server => $config_file_hash{'main'}{'server'}
-				 , conference_server => $config_file_hash{'main'}{'conference'}
-				 , port => $config_file_hash{'main'}{'port'}
-				 , username => $config_file_hash{'main'}{'username'}
-				 , password => $config_file_hash{'main'}{'password'}
+				 server => $server
+				 , conference_server => "conference.$server"
+				 , port => 5222
+				 , username => 'test_username'
+				 , password => 'test_pass'
 				 , alias => $bot_alias
 				 , message_callback => \&new_bot_message   # Called if new messages arrive.
 				 , background_activity => \&background_checks # What the bot does outside jabber.
@@ -59,21 +63,22 @@ my $bot = Net::Jabber::Bot->new({
 				 , max_message_size => $max_message_size
 				 , max_messages_per_hour => $max_messages_per_hour
 				});
-diag("got return value $result") if(defined $result);
 
-ok(defined $bot, "Bot initialized and connected");
-
+isa_ok($bot, "Net::Jabber::Bot");
 ok(1, "Sleeping 22 seconds to make sure we get past initializtion");
-ok((sleep 22) > 20, "Making sure the bot get's past initialization (sleep 22)");
-process_bot_messages();
+ok((sleep 22) > 20, "Making sure the bot get's past login initialization (sleep 22)");
+process_bot_messages(); # Clean off the queue before we start?
 
-# Test Group Message bursting is not possible
+# continue editing here. Need to next enhance mock object to know jabber bot callbacks.
+# Not sure how we're going to chase chicken/egg issue.
+
+ok(1, "Testing Group Message bursting is not possible");
 {
     start_new_test(); # Reset all my counter variables.
     for my $counter (1..$flood_messages_to_send) {
-	my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum1'}, "Testing message speed $counter");
-	diag("got return value $result") if(defined $result);
-	ok(!defined $result, "Sent group message $counter");
+	my $result = $bot->SendGroupMessage($forum1, "Testing message speed $counter");
+		diag("got return value $result") if(defined $result);
+		ok(!defined $result, "Sent group message $counter");
     }
 
      my $running_time = time - $start_time;
@@ -86,7 +91,7 @@ process_bot_messages();
 }
 
 
-# Test PERSONAL_ADDRESS Message bursting is not possible
+ok(1, "Testing PERSONAL_ADDRESS Message bursting is not possible");
  {
      start_new_test();
      for my $counter (1..$flood_messages_to_send) {
@@ -133,25 +138,27 @@ my $long_message_length = length $long_message;
 cmp_ok(length($long_message), '>=' , $max_message_size , "Length of message is greater than 1 message chunk ($long_message_length bytes)");
 
 
-# Test messages that will be split:
+ok(1, "Testing messages that will be split:");
 {
      start_new_test();
      cmp_ok($bot->respond_to_self_messages( ), '==', 1, "Make sure I'm responding to self messages.");
 
      # Group Test.
      ok(1, "Sending long message of " . length($long_message) . " bytes to forum");
-     my $result = $bot->SendGroupMessage($config_file_hash{'main'}{'test_forum1'}, $long_message);
+     my $result = $bot->SendGroupMessage($forum1, $long_message);
      diag("got return value $result\nWhile trying to send: $long_message") if(defined $result);
      ok(!defined $result, "Sent long message.");
      process_bot_messages();
      cmp_ok($messages_seen, '>=',$long_message_test_messages, "Saw $long_message_test_messages messages so we know it was chunked into messages smaller than $max_message_size");
 
      start_new_test();
-     my $subject_change_result = $bot->SetForumSubject($config_file_hash{'main'}{'test_forum1'}, $long_message);
+     my $subject_change_result = $bot->SetForumSubject($forum1, $long_message);
      is($subject_change_result, "Subject is too long!", 'Verify long subject changes are rejected.');
      verify_messages_sent(0);
      verify_messages_seen(0, "Bot should not have sent anything to the server.");
 }
+
+DEBUG("Finished with first burst");
 
 # Test a successful message with a panic
 start_new_test();
@@ -203,13 +210,13 @@ sub start_new_test {
 
 
 sub process_bot_messages {
-    sleep 2; # Pause a little to make sure message make it to the server and back.
+	DEBUG("Processing bot messages from test file ($0)");
     ok(defined $bot->Process(5), "Processed new messages and didn't lose connection.");
 }
 
 sub InitLog4Perl {
-
-    $config_file .= <<'CONFIG_DATA';
+	use Log::Log4perl qw(:easy);
+	my $config_file .= <<'CONFIG_DATA';
 # Regular Screen Appender
 log4perl.appender.Screen           = Log::Log4perl::Appender::Screen
 log4perl.appender.Screen.stderr    = 0
@@ -218,8 +225,6 @@ log4perl.appender.Screen.layout.ConversionPattern = %d %p (%L): %m%n
 log4perl.category = ALL, Screen
 CONFIG_DATA
 
-Log::Log4perl->init(\$config_file);
+	Log::Log4perl->init(\$config_file);
     $| = 1; #unbuffer stdout!
-
-
 }

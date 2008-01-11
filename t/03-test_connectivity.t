@@ -6,6 +6,9 @@ use Config::Std; # Uses read_config to pull info from a config files. enhanced I
 use Net::Jabber::Bot;
 use Log::Log4perl qw(:easy);
 
+SKIP:{
+    skip "Must have a server", 6 unless(defined $ENV{JABBER});
+
 # Load config file.
 my $config_file = 'test_config.cfg';
 my %config_file_hash;
@@ -29,10 +32,11 @@ my $bot = Net::Jabber::Bot->new({
     , forums_and_responses => \%forums_and_responses
 });
 
-ok(defined $bot, "Bot initialized and connected");
+isa_ok($bot, "Net::Jabber::Bot");
 
 ok(defined $bot->Process(), "Bot connected to server");
 sleep 5;
 ok($bot->Disconnect() > 0, "Bot successfully disconnects"); # Disconnects
 ok($bot->Disconnect() < 0, "Bot fails to disconnect cause it already is"); # If already disconnected, we get a negative number
 ok(!defined Net::Jabber::Bot->Disconnect(), "Invalid object fed to disconnect"); # Must be an object in order to disconnect.
+}
