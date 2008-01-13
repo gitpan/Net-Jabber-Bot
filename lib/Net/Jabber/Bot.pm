@@ -35,11 +35,11 @@ Net::Jabber::Bot - Automated Bot creation with safeties
 
 =head1 VERSION
 
-Version 2.0.3
+Version 2.0.4
 
 =cut
 
-our $VERSION = '2.0.3';
+our $VERSION = '2.0.4';
 
 =head1 SYNOPSIS
 
@@ -224,8 +224,6 @@ sub BUILD {
 
     $forum_join_grace{$obj_ID} = 20;
 
-    $jabber_client{$obj_ID} = $arg_ref->{'jabber_client'};
-
     # Safety mode is on unless they feed us 0 or off explicitly
     $safety_mode{$obj_ID} = $arg_ref->{'safety_mode'};
     if(!defined $safety_mode{$obj_ID}
@@ -238,6 +236,8 @@ sub BUILD {
 
     $connection_hash{$obj_ID}{'server'} = $arg_ref->{'server'};
     $connection_hash{$obj_ID}{'conference_server'} = $arg_ref->{'conference_server'};
+    $connection_hash{$obj_ID}{'gtalk'} = $arg_ref->{'gtalk'};
+    
 
     $connection_hash{$obj_ID}{'port'} = $arg_ref->{'port'};
     $connection_hash{$obj_ID}{'port'} = 5222 if(!defined $connection_hash{$obj_ID}{'port'});
@@ -245,7 +245,8 @@ sub BUILD {
     $connection_hash{$obj_ID}{'username'} = $arg_ref->{'username'};
     $connection_hash{$obj_ID}{'password'} = $arg_ref->{'password'};
 
-    $connection_hash{$obj_ID}{'alias'} = $arg_ref->{'alias'};
+    $connection_hash{$obj_ID}{'alias'} = $arg_ref->{'alias'}
+    or $connection_hash{$obj_ID}{'alias'} = 'net_jabber_bot';    
 
     $message_function{$obj_ID} = $arg_ref->{'message_callback'};
     $bot_background_activity{$obj_ID} = $arg_ref->{'background_activity'};
@@ -365,14 +366,24 @@ sub InitJabber : PRIVATE {
                               );
 
     DEBUG("Connect. hostname => $connection_hash{$obj_ID}{'server'} , port => $connection_hash{$obj_ID}{'port'}");
-    my $status = $connection->Connect(hostname=>$connection_hash{$obj_ID}{'server'} , port=>$connection_hash{$obj_ID}{'port'});
-
+    my %client_connect_hash;
+    $client_connect_hash{hostname} = $connection_hash{$obj_ID}{'server'};
+    $client_connect_hash{port}     = $connection_hash{$obj_ID}{'port'};
+ 
+    if ($connection_hash{$obj_ID}{'gtalk'}) { # Set additional parameters for gtalk connection. Will this work with all Jabber servers?
+        $client_connect_hash{connectiontype} = 'tcpip';
+        $client_connect_hash{tls} = '1';
+        $client_connect_hash{componentname} = 'gmail.com';
+    }
+    
+    my $status = $connection->Connect(%client_connect_hash);
+    
     if(!defined $status) {
        ERROR("ERROR:  Jabber server is down or connection was not allowed: $!");
        return;
     }
 
-    DEBUG("Logging in... as user $connection_hash{$obj_ID}{'username'}/$connection_hash{$obj_ID}{'alias'}");
+    DEBUG("Logging in... as user $connection_hash{$obj_ID}{'username'} / $connection_hash{$obj_ID}{'alias'}");
     my @auth_result = $connection->AuthSend(username=>$connection_hash{$obj_ID}{'username'},
                                             password=>$connection_hash{$obj_ID}{'password'},
                                             resource=>$connection_hash{$obj_ID}{'alias'});
@@ -555,7 +566,10 @@ sub ProcessJabberMessage {
     my $reply_to = $from_full;
     $reply_to =~ s/\/.*$// if($type eq 'groupchat');
 
-    my $message_date_text = $message->GetTimeStamp();
+    # Don't know exactly why but when a message comes from gtalk-web-interface, it works well, but if the message comes from Gtalk client, bot deads
+#   my $message_date_text;  eval { $message_date_text = $message->GetTimeStamp(); } ; # Eval is a really bad idea. we need to understand why this is failing.
+
+#    my $message_date_text = $message->GetTimeStamp(); # Since we're not using the data, we'll turn this off since it crashes gtalk clients aparently?
     #    my $message_date = UnixDate($message_date_text, "%s") - 1*60*60; # Convert to EST from CST;
 
     # Ignore any messages within 20 seconds of start or join of that forum
@@ -671,8 +685,8 @@ sub Version : PRIVATE {
     my $obj_ID = $self->_get_obj_id() or return;
 
     my $iq = new Net::XMPP::IQ();
-    $iq->SetIQ(to=> 'todd.e.rinaldo@mx-dev.jpmorgan.com/Shiva'
-           , from=> 'murex.bot@mx-dev.jpmorgan.com/Murex-Bot'
+    $iq->SetIQ(to=> 'todd.e.rinaldo@jabber.com/Shiva'
+           , from=> 'jabber.bot@mx-dev.jabber.com/jabber-Bot'
            , id=>   'jcl_122'
            , type=> 'get'
           );
@@ -1019,13 +1033,13 @@ sub _get_obj_id : PRIVATE {
 
 =head1 AUTHOR
 
-Todd E Rinaldo, C<< <todd.e.rinaldo at jpmorgan.com> >>
+Todd Rinaldo, Robert Boone, Wade Johnson C<< <perl-net-jabber-bot@googlegroups.com) > >>
 
 =head1 BUGS
 
 Please report any bugs or feature requests to
-C<bug-net-jabber-bot at rt.cpan.org>, or through the web interface at
-L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Jabber-Bot>.
+C<perl-net-jabber-bot@googlegroups.com>, or through the web interface at
+L<http://code.google.com/p/perl-net-jabber-bot/issues/entry>.
 I will be notified, and then you'll automatically be notified of progress on
 your bug as I make changes.
 
@@ -1047,13 +1061,17 @@ L<http://annocpan.org/dist/Net-Jabber-Bot>
 
 L<http://cpanratings.perl.org/d/Net-Jabber-Bot>
 
-=item * RT: CPAN's request tracker
-
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Net-Jabber-Bot>
-
 =item * Search CPAN
 
 L<http://search.cpan.org/dist/Net-Jabber-Bot>
+
+=item * Project homepage
+
+L<http://code.google.com/p/perl-net-jabber-bot/>
+
+=item * Google Issue Tracker (reporting bugs)
+
+L<http://code.google.com/p/perl-net-jabber-bot/issues/entry>
 
 =back
 
