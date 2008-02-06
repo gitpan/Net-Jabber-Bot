@@ -35,11 +35,11 @@ Net::Jabber::Bot - Automated Bot creation with safeties
 
 =head1 VERSION
 
-Version 2.0.6
+Version 2.0.7
 
 =cut
 
-our $VERSION = '2.0.6';
+our $VERSION = '2.0.7';
 
 =head1 SYNOPSIS
 
@@ -110,6 +110,7 @@ if you do not export anything, such as for a purely object-oriented module.
                                 , out_messages_per_second => 4
                                 , max_message_size => 1000
                                 , max_messages_per_hour => 100
+                                , gtalk => 0 # Default to off, 1 for on. needed now due to gtalk differences from std jabber server.
                             });
 
 
@@ -360,6 +361,7 @@ sub InitJabber : PRIVATE {
     DEBUG("Set the call backs.");
 
     $connection->PresenceDB(); # Init presence DB.
+    $connection->RosterDB(); # Init Roster DB.
     $connection->SetCallBacks( 'message'  => $self->callback_maker(\&ProcessJabberMessage)
                               ,'presence' => $self->callback_maker(\&JabberPresenceMessage)
                               ,'iq'       => $self->callback_maker(\&InIQ)
@@ -369,7 +371,7 @@ sub InitJabber : PRIVATE {
     my %client_connect_hash;
     $client_connect_hash{hostname} = $connection_hash{$obj_ID}{'server'};
     $client_connect_hash{port}     = $connection_hash{$obj_ID}{'port'};
-
+    
     if ($connection_hash{$obj_ID}{'gtalk'}) { # Set additional parameters for gtalk connection. Will this work with all Jabber servers?
         $client_connect_hash{connectiontype} = 'tcpip';
         $client_connect_hash{tls} = '1';
@@ -384,6 +386,14 @@ sub InitJabber : PRIVATE {
     }
 
     DEBUG("Logging in... as user $connection_hash{$obj_ID}{'username'} / $connection_hash{$obj_ID}{'alias'}");
+
+    if ($connection_hash{$obj_ID}{'gtalk'}) {
+
+         my $sid = $connection->{SESSION}->{id};
+        $connection->{STREAM}->{SIDS}->{$sid}->{hostname} = 'gmail.com';
+
+    }
+
     my @auth_result = $connection->AuthSend(username=>$connection_hash{$obj_ID}{'username'},
                                             password=>$connection_hash{$obj_ID}{'password'},
                                             resource=>$connection_hash{$obj_ID}{'alias'});
@@ -395,7 +405,9 @@ sub InitJabber : PRIVATE {
     }
         return;
     }
-
+    
+    $connection->RosterRequest();
+    
     $connection_session_id{$obj_ID} = $connection->{SESSION}->{id};
 
     DEBUG("Sending presence to tell world that we are logged in");
@@ -1029,11 +1041,53 @@ sub _get_obj_id : PRIVATE {
     return;
 }
 
+=item B<ChangeStatus>
+
+    $bot->ChangeStatus($presence_mode, $status_string);
+
+Sets the Bot's presence status.
+$presence mode could be something like: (Chat, Available, Away, Ext. Away, Do Not Disturb).
+$status_string is an optional comment to go with your presence mode. It is not required.
+
+=cut
+
+sub ChangeStatus {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return "Not an object\n"; #Failure
+    my $presence_mode = shift;
+    my $status_string = shift; # (optional)
+    
+    $jabber_client{$obj_ID}->PresenceSend(show=>$presence_mode, status=>$status_string);
+    
+    return 1;
+}
+
+=item B<GetRoster>
+
+    $bot->GetRoster();
+
+Returns a list of the people logged into the server.
+I suspect we really want to know who is in a paticular forum right?
+In which case we need another sub for this. 
+=cut
+
+sub GetRoster {
+    my $self = shift;
+    my $obj_ID = $self->_get_obj_id() or return "Not an object\n"; #Failure
+    
+    my @rosterlist;
+    foreach my $jid ($jabber_client{$obj_ID}->RosterDBJIDs()) {
+        my $username =$jid->GetJID();
+        push(@rosterlist, $username) ;
+    }
+    return @rosterlist;
+}    
+
 =back
 
 =head1 AUTHOR
 
-Todd Rinaldo, Robert Boone, Wade Johnson C<< <perl-net-jabber-bot@googlegroups.com) > >>
+Todd Rinaldo C<< <perl-net-jabber-bot@googlegroups.com) > >>
 
 =head1 BUGS
 
