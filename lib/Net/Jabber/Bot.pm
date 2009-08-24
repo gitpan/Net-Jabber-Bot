@@ -10,6 +10,7 @@ use MooseX::Types::Moose qw/Int HashRef Str Maybe ArrayRef Bool CodeRef Object N
 use version;
 use Net::Jabber;
 use Time::HiRes;
+use Sys::Hostname;
 use Log::Log4perl qw(:easy);
 #use Data::Dumper; #For testing only.
 
@@ -34,11 +35,15 @@ has 'forum_join_grace'    => (isa => PosNum, is => 'rw', default => 10);
 has 'server_host'         => (isa => Str, is => 'rw', lazy => 1, default => sub{shift->server });
 has 'server'              => (isa => Str, is => 'rw');
 has 'port'                => (isa => PosInt, is => 'rw', default => 5222);
-has 'tls'                 => (isa => Bool, is => 'rw');
+has 'tls'                 => (isa => Bool, is => 'rw', default => '0');
+has 'connection_type'     => (isa => Str, is => 'rw', default => 'tcpip');
 has 'conference_server'   => (isa => Str, is => 'rw');
 has 'username'            => (isa => Str, is => 'rw');
 has 'password'            => (isa => Str, is => 'rw');
 has 'alias'               => (isa => Str, is => 'rw', default => sub{'net_jabber_bot'});
+# Resource defaults to alias_hostname_pid
+has 'resource'            => (isa => Str, lazy => 1, is => 'rw', default => sub{shift->alias . "_" . hostname . "_" . $$});
+#has 'resource'            => (isa => Str, lazy => 1, is => 'rw', default => sub{shift->alias});
 has 'message_function'    => (isa => Maybe[CodeRef], is => 'rw', default => sub{undef});
 has 'background_function' => (isa => Maybe[CodeRef], is => 'rw', default => sub{undef});
 has 'loop_sleep_time'     => (isa => PosNum, is => 'rw', default => 5);
@@ -49,9 +54,9 @@ has 'from_full'           => (isa => Str, is => 'rw', default => sub{my $self = 
                                                                        $self->server .
                                                                        '/' .
                                                                        $self->alias});
+                                                                       
 
 has 'safety_mode'            => (isa => Bool, is => 'rw', default => 1, coerce => 1);
-has 'gtalk'                  => (isa => Bool, is => 'rw', default => 0, coerce => 1);
 has 'ignore_server_messages' => (isa => Bool, is => 'rw', default => 1, coerce => 1);
 has 'ignore_self_messages'   => (isa => Bool, is => 'rw', default => 1, coerce => 1);
 has 'forums_and_responses'   => (isa => HashRef[ArrayRef[Str]], is => 'rw'); # List of forums we're in and the strings we monitor for.
@@ -87,11 +92,11 @@ Net::Jabber::Bot - Automated Bot creation with safeties
 
 =head1 VERSION
 
-Version 2.1.4
+Version 2.1.5
 
 =cut
 
-our $VERSION = '2.1.4';
+our $VERSION = '2.1.5';
 
 =head1 SYNOPSIS
 
@@ -138,11 +143,26 @@ The object at present has the following enforced safeties as long as you do not 
 
 =item B<new>
 
+Minimal: 
     my $bot = Net::Jabber::Bot->new(
-                                 server => 'host.domain.com' # Name of server when sending messages internally.
+                                  server => 'host.domain.com' # Name of server when sending messages internally.
                                 , conference_server => 'conference.host.domain.com'
-                                , server_host => 'talk.domain.com', # used to specify what jabber server to connect to on connect?
-                                , tls => 0 # Used by gtalk. breaks if set elsewhere.
+                                , port => 522
+                                , username => 'username'
+                                , password => 'pasword'
+                                , safety_mode => 1
+                                , message_function => \&new_bot_message
+                                , background_function => \&background_checks
+                                , forums_and_responses => \%forum_list
+                            );
+    
+All options:
+    my $bot = Net::Jabber::Bot->new(
+                                  server => 'host.domain.com' # Name of server when sending messages internally.
+                                , conference_server => 'conference.host.domain.com'
+                                , server_host => 'talk.domain.com' # used to specify what jabber server to connect to on connect?
+                                , tls => 0 # set to 1 for google 
+                                , connection_type => 'tcpip'
                                 , port => 522
                                 , username => 'username'
                                 , password => 'pasword'
@@ -157,8 +177,9 @@ The object at present has the following enforced safeties as long as you do not 
                                 , out_messages_per_second => 4
                                 , max_message_size => 1000
                                 , max_messages_per_hour => 100
-                                , gtalk => 0 # Default to off, 1 for on. needed now due to gtalk differences from std jabber server.
                             );
+
+
 
 
 Setup the object and connect to the server. Hash values are passed to new as a hash.
@@ -177,6 +198,11 @@ Determines if the bot safety features are turned on and enforced. This mode is o
 
 Jabber server name
 
+=item B<server_host>
+
+Defaults to the same value set for 'server' above.
+This is where the bot initially connects. For google for instance, you should set this to 'gmail.com' 
+
 =item B<conference_server>
 
 conferencee server (usually conference.$server_name)
@@ -184,6 +210,12 @@ conferencee server (usually conference.$server_name)
 =item B<port>
 
 Defaults to 5222
+
+=item B<tls>
+Boolean value. defaults to 0. for google, it is know that this value must be 1 to work.  
+
+=item B<connection_type>
+defaults to 'tcpip' also takes 'http' 
 
 =item B<username>
 
@@ -290,11 +322,6 @@ sub BUILD {
         sleep 30;
     } 
     
-    if($self->gtalk) { # Google settings we're auto-setting
-        $self->server_host('gmail.com');
-        $self->tls(1);
-    }
-
     # Message delay is inverse of out_messages_per_second
     $self->message_delay(1/$self->out_messages_per_second);
 
@@ -350,29 +377,32 @@ sub _init_jabber {
         hostname => $self->server,
         port => $self->port,
         tls => $self->tls,
-        connection_type => 'tcpip',
+        connectiontype => $self->connection_type,
+        componentname  => $self->server_host,
     );
 
     my $status = $connection->Connect(%client_connect_hash);
 
     if(!defined $status) {
        ERROR("ERROR:  Jabber server is down or connection was not allowed: $!");
-       return;
+       die("Jabber server is down or connection was not allowed: $!");
     }
 
-    DEBUG("Logging in... as user " . $self->username . " / " . $self->alias);
+    DEBUG("Logging in... as user " . $self->username . " / " . $self->resource);
+    DEBUG("PW: " . $self->password);
 
-    my $sid = $connection->{SESSION}->{id};
-    $connection->{STREAM}->{SIDS}->{$sid}->{hostname} = $self->server_host;
+# Moved into connect hash via 'componentname'
+#    my $sid = $connection->{SESSION}->{id};
+#    $connection->{STREAM}->{SIDS}->{$sid}->{hostname} = $self->server_host;
 
 
     my @auth_result = $connection->AuthSend(username => $self->username,
                                             password => $self->password,
-                                            resource => $self->alias,
+                                            resource => $self->resource,
                                             );
 
     if(!defined $auth_result[0] || $auth_result[0] ne "ok") {
-        ERROR("Authorization failed: for " . $self->username . " / " . $self->alias);
+        ERROR("Authorization failed: for " . $self->username . " / " . $self->resource);
         foreach my $result (@auth_result) {
             ERROR("$result");
         }
@@ -415,7 +445,6 @@ sub JoinForum {
     my $forum_name = shift;
 
     DEBUG("Joining $forum_name on " . $self->conference_server . " as " . $self->alias);
-#    $forum_name =~ s/ /\|/g; # Spaces into pipes for forum name
 
     $self->jabber_client->MUCJoin(room    => $forum_name,
                                   server => $self->conference_server,
@@ -580,10 +609,11 @@ sub _process_jabber_message {
     my $reply_to = $from_full;
     $reply_to =~ s/\/.*$// if($type eq 'groupchat');
 
-    # Don't know exactly why but when a message comes from gtalk-web-interface, it works well, but if the message comes from Gtalk client, bot deads
-#   my $message_date_text;  eval { $message_date_text = $message->GetTimeStamp(); } ; # Eval is a really bad idea. we need to understand why this is failing.
+    # TODO: 
+    # Don't know exactly why but when a message comes from gtalk-web-interface, it works well, but if the message comes from Gtalk client, bot dies
+    #   my $message_date_text;  eval { $message_date_text = $message->GetTimeStamp(); } ; # Eval is a really bad idea. we need to understand why this is failing.
 
-#    my $message_date_text = $message->GetTimeStamp(); # Since we're not using the data, we'll turn this off since it crashes gtalk clients aparently?
+    #    my $message_date_text = $message->GetTimeStamp(); # Since we're not using the data, we'll turn this off since it crashes gtalk clients aparently?
     #    my $message_date = UnixDate($message_date_text, "%s") - 1*60*60; # Convert to EST from CST;
 
     # Ignore any messages within 10 seconds of start or join of that forum
@@ -610,8 +640,8 @@ sub _process_jabber_message {
 
     # Are these my own messages?
     if($self->ignore_self_messages ) { # TODO: || $self->safety_mode (this breaks tests in 06?)
-        my $bot_alias = $self->get_alias();
-        if(defined $resource && $bot_alias eq $resource) { # Ignore my own messages.
+        
+        if(defined $resource && $resource eq $self->resource) { # Ignore my own messages.
             DEBUG("Ignoring message from self...\n");
             return;
         }
@@ -652,18 +682,6 @@ sub _process_jabber_message {
     }
 }
 
-=item B<get_alias>
-
-Returns the alias name we are connected as or undef if we are not an object
-
-=cut
-
-sub get_alias {
-    my $self = shift;
-
-    return $self->alias;
-}
-
 =item B<get_responses>
 
     $bot->get_ident($forum_name);
@@ -691,21 +709,6 @@ sub get_responses {
 }
 
 
-# Supposed to send version requests to other user/resources. *** NOT WORKING YET ****
-sub _request_version {
-    my $self = shift;
-
-    my $iq = new Net::XMPP::IQ();
-    $iq->SetIQ(to=> 'todd.e.rinaldo@jabber.com/Shiva'
-           , from=> 'jabber.bot@mx-dev.jabber.com/jabber-Bot'
-           , id=>   'jcl_122'
-           , type=> 'get'
-          );
-    my $iqType = $iq->NewChild( 'jabber:iq:version' );
-    DEBUG("Sending IQ Message:" . $iq->GetXML());
-    $self->jabber_client->Send($iq)
-}
-
 =item B<_jabber_in_iq_message> - DO NOT CALL
 
 Called when the client receives new messages during Process of this type.
@@ -719,7 +722,7 @@ sub _jabber_in_iq_message {
     my $iq = shift;
 
     DEBUG("IQ Message:" . $iq->GetXML());
-#    my $from = $iq->GetFrom();DEBUG("From=$from");
+    my $from = $iq->GetFrom();
 #    my $type = $iq->GetType();DEBUG("Type=$type");
     my $query = $iq->GetQuery();#DEBUG("query=" . Dumper($query));
     my $xmlns = $query->GetXMLNS();DEBUG("xmlns=$xmlns");
@@ -727,22 +730,24 @@ sub _jabber_in_iq_message {
 
     # Respond to version requests with information about myself.
     if($xmlns eq "jabber:iq:version") {
-        $iqReply = $iq->Reply();
-        my $response = $iqReply->GetQuery();
-        $response->SetName($self->alias);
-        $response->SetVer("2.0.7");
-        $response->SetOS($^O);
+        # convert 5.010000 to 5.10.0
+        my $perl_version = $];
+        $perl_version =~ s/(\d{3})(?=\d)/$1./g; 
+        $perl_version =~ s/\.0+(\d)/.$1/;
+        
+        $self->jabber_client
+             ->VersionSend(to=> $from,
+                           name=>__PACKAGE__,
+                           ver=> $VERSION,
+                           os=> "Perl v$perl_version");
     } else { # Unknown request. Just ignore it.
         return;
     }
 
-    DEBUG("Reply: ", $iqReply->GetXML());
-    $self->jabber_client->Send($iqReply);
-
-#    $from = "" if(!defined $from);
-#    $type = "" if(!defined $type);
-#    $query = "" if(!defined $query);
-#    $xmlns = "" if(!defined $xmlns);
+    if($iqReply) {
+        DEBUG("Reply: ", $iqReply->GetXML());
+        $self->jabber_client->Send($iqReply);
+    }
 
 #    INFO("IQ from $from ($type). XMLNS: $xmlns");
 }
@@ -890,6 +895,9 @@ The master subroutine to send a message. Called either by the user, SendPersonal
 is call to call it directly when you do not feel like figuring you messaged you.
 Assures message size does not exceed a limit and chops it into pieces if need be.
 
+NOTE: non-printable characters (unicode included) will be stripped before sending to the server via:
+    s/[^[:print:]]+/./xmsg
+
 =cut
 
 sub SendJabberMessage {
@@ -979,14 +987,16 @@ sub _send_individual_message {
         return "Server is down.\n";
     }
 
-    $message_chunk =~ s/[^ -~\r\n]/./g; #Strip out anything that's not a printable character
+    # Strip out anything that's not a printable character
+    # Now with unicode support?
+    $message_chunk =~ s/[^[:print:]]+/./xmsg; 
 
     my $message_length = length($message_chunk);
     DEBUG("Sending message $yday-$hour-$messages_this_hour $message_length bytes to $recipient");
     $self->jabber_client->MessageSend(to => $recipient
                      , body => $message_chunk
                      , type => $message_type
-#                                        , from => $connection_hash{$obj_ID}{'from_full'}
+#                     , from => $connection_hash{$obj_ID}{'from_full'}
                      , subject => $subject
                      );
 
@@ -1181,8 +1191,7 @@ under the same terms as Perl itself.
 
 =cut
 
-# We aren't making the object immutable because we new the object once and only once...
-#__PACKAGE__->meta->make_immutable;
+__PACKAGE__->meta->make_immutable;
 no Moose;
 no MooseX::Types;
 1; # End of Net::Jabber::Bot
